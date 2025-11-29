@@ -181,6 +181,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         # Enum parser
         self._enum_parser = enum_parser
 
+        # TODO:
         # WebSocket API
         self._ws_client = BinanceWebSocketClient(
             clock=clock,

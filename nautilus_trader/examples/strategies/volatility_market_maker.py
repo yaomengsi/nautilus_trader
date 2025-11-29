@@ -16,6 +16,7 @@
 from decimal import Decimal
 
 import pandas as pd
+from loguru import logger
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import PositiveFloat
@@ -35,6 +36,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.events import OrderFilled
+from nautilus_trader.model.events import PositionEvent
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import Instrument
@@ -99,6 +101,8 @@ class VolatilityMarketMaker(Strategy):
         The configuration for the instance.
 
     """
+
+    config: VolatilityMarketMakerConfig
 
     def __init__(self, config: VolatilityMarketMakerConfig) -> None:
         super().__init__(config)
@@ -202,7 +206,8 @@ class VolatilityMarketMaker(Strategy):
 
         """
         # For debugging (must add a subscription)
-        self.log.info(repr(tick), LogColor.CYAN)
+        # self.log.info(repr(tick), LogColor.CYAN)
+        # logger.debug(self.atr.value)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         """
@@ -215,7 +220,7 @@ class VolatilityMarketMaker(Strategy):
 
         """
         # For debugging (must add a subscription)
-        self.log.info(repr(tick), LogColor.CYAN)
+        # self.log.info(repr(tick), LogColor.CYAN)
 
     def on_mark_price(self, update: MarkPriceUpdate) -> None:
         """
@@ -284,6 +289,16 @@ class VolatilityMarketMaker(Strategy):
             self.cancel_order(self.sell_order)
         self.create_sell_order(last)
 
+        latency =  (last.ts_init - last.ts_event) / 1_000_000
+        spread = last.ask_price - last.bid_price
+        spread_rate = spread / last.ask_price
+        logger.warning(f"{latency=}ms {spread=} {spread_rate=}")
+
+        buy_price: Decimal = last.bid_price - (self.atr.value * self.config.atr_multiple)
+        sell_price: Decimal = last.ask_price + (self.atr.value * self.config.atr_multiple)
+        mm_rate = (sell_price - buy_price) / sell_price
+        logger.warning(f"{buy_price=} {sell_price=} {mm_rate=}")
+
     def create_buy_order(self, last: QuoteTick) -> None:
         """
         Market maker simple buy limit method (example).
@@ -330,6 +345,15 @@ class VolatilityMarketMaker(Strategy):
         self.sell_order = order
         self.submit_order(order, client_id=self.client_id)
 
+    def on_position_changed(self, event: PositionEvent) -> None:
+        # Use Cache when you need historical perspective
+        position_history = self.cache.position_snapshots(event.position_id)
+        logger.debug(position_history)
+
+        # Use Portfolio when you need current real-time state
+        current_exposure = self.portfolio.net_exposure(event.instrument_id)
+        logger.debug(current_exposure)
+
     def on_event(self, event: Event) -> None:
         """
         Actions to be performed when the strategy is running and receives an event.
@@ -340,6 +364,8 @@ class VolatilityMarketMaker(Strategy):
             The event received.
 
         """
+        logger.debug(event)
+
         last: QuoteTick = self.cache.quote_tick(self.config.instrument_id)
         if last is None:
             self.log.info("No quotes yet")
@@ -350,9 +376,7 @@ class VolatilityMarketMaker(Strategy):
             if self.buy_order and event.order_side == OrderSide.BUY:
                 if self.buy_order.is_closed:
                     self.create_buy_order(last)
-            elif (
-                self.sell_order and event.order_side == OrderSide.SELL and self.sell_order.is_closed
-            ):
+            elif self.sell_order and event.order_side == OrderSide.SELL and self.sell_order.is_closed:
                 self.create_sell_order(last)
 
     def on_stop(self) -> None:

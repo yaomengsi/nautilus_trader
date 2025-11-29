@@ -16,6 +16,7 @@
 from decimal import Decimal
 
 import pandas as pd
+from loguru import logger
 
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import PositiveInt
@@ -111,6 +112,8 @@ class EMACross(Strategy):
         If `config.fast_ema_period` is not less than `config.slow_ema_period`.
 
     """
+
+    config: EMACrossConfig
 
     def __init__(self, config: EMACrossConfig) -> None:
         PyCondition.is_true(
@@ -211,7 +214,7 @@ class EMACross(Strategy):
 
         """
         # For debugging (must add a subscription)
-        self.log.info(repr(tick), LogColor.CYAN)
+        # self.log.info(repr(tick), LogColor.CYAN)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         """
@@ -224,7 +227,7 @@ class EMACross(Strategy):
 
         """
         # For debugging (must add a subscription)
-        self.log.info(repr(tick), LogColor.CYAN)
+        # self.log.info(repr(tick), LogColor.CYAN)
 
     def on_bar(self, bar: Bar) -> None:
         """
@@ -237,6 +240,13 @@ class EMACross(Strategy):
 
         """
         self.log.info(repr(bar), LogColor.CYAN)
+
+        last: QuoteTick = self.cache.quote_tick(self.config.instrument_id)
+        if last:
+            latency = (last.ts_init - last.ts_event) / 1_000_000
+            spread = last.ask_price - last.bid_price
+            spread_rate = spread / last.ask_price
+            logger.warning(f"{latency=}ms {spread=} {spread_rate=}")
 
         # Check if indicators ready
         if not self.indicators_initialized():
